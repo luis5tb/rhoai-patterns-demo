@@ -141,3 +141,7 @@ clusterGroup:
       namespace: rag-demo
       project: rag
       path: charts/all/rag
+
+vars:
+  minio:
+    bucket_name: localdocs
