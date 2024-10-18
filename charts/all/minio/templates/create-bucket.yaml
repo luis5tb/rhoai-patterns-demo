@@ -24,8 +24,6 @@ spec:
         - args:
             - -ec
             - |-
-              oc get secret minio-secret
-              env | grep MINIO
               cat << 'EOF' | python3
               import boto3, os
               s3 = boto3.client("s3",
@@ -39,37 +37,18 @@ spec:
               EOF
           command:
             - /bin/bash
-          envFrom:
-            - secretRef:
-                name: minio-secret
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: minio_root_user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: minio_root_password
           image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/s2i-generic-data-science-notebook:2024.1
           imagePullPolicy: IfNotPresent
           name: create-buckets
-      initContainers:
-        - args:
-            - -ec
-            - |-
-              echo -n 'Waiting for minio root user secret'
-              while ! oc get secret minio-secret 2>/dev/null | grep -qF minio-secret; do
-              echo -n .
-              sleep 5
-              done; echo
-              echo -n 'Waiting for minio deployment'
-              while ! oc get deployment minio 2>/dev/null | grep -qF minio; do
-                echo -n .
-                sleep 5
-              done; echo
-              oc wait --for=condition=available --timeout=60s deployment/minio
-              sleep 10
-              
-              echo -n 'Waiting for openshift ai initialize'
-              while ! oc describe sub rhods-operator -n redhat-ods-operator 2>/dev/null | grep -qF rhods-operator; do
-                echo -n .
-                sleep 5
-              done; echo
-          command:
-            - /bin/bash
-          image: image-registry.openshift-image-registry.svc:5000/openshift/tools:latest
-          imagePullPolicy: IfNotPresent
-          name: wait-for-minio
-      restartPolicy: Never
+      restartPolicy: OnFailure
