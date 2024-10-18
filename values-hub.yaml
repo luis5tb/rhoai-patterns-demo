@@ -2,12 +2,14 @@ clusterGroup:
   name: hub
   isHubCluster: true
   namespaces:
-    - openshift-serverless
+    - openshift-serverless:
+        operatorGroup: true
+        targetNamespaces: []
     - openshift-nfd
     - nvidia-gpu-operator
     - redhat-ods-operator:
         operatorGroup: true
-        targetNamespaces:
+        targetNamespaces: []
     - vault
     - golang-external-secrets
     - chromadb-ns
@@ -23,16 +25,24 @@ clusterGroup:
   subscriptions:
     serverless:
       name: serverless-operator
-      #namespace: openshift-serverless
-      #channel: stable
-      #source: redhat-operators
-      #sourceNamespace: openshift-marketplace
-    istio:
+      namespace: openshift-serverless
+      channel: stable
+    #serverless:
+    #  name: serverless-operator
+    #  #namespace: openshift-serverless
+    #  #channel: stable
+    #  #source: redhat-operators
+    #  #sourceNamespace: openshift-marketplace
+    servicemesh:
       name: servicemeshoperator
       namespace: openshift-operators
       channel: stable
-      source: redhat-operators
-      sourceNamespace: openshift-marketplace
+    #istio:
+    #  name: servicemeshoperator
+    #  namespace: openshift-operators
+    #  channel: stable
+    #  source: redhat-operators
+    #  sourceNamespace: openshift-marketplace
     nfd:
       name: nfd
       namespace: openshift-nfd
