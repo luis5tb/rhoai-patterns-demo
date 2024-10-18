@@ -73,4 +73,3 @@ spec:
           imagePullPolicy: IfNotPresent
           name: wait-for-minio
       restartPolicy: Never
-      serviceAccountName: demo-setup
