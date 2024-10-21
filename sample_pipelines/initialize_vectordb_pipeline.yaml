@@ -1,0 +1,339 @@
+# PIPELINE DEFINITION
+# Name: initialize-vectordb-pipeline
+# Inputs:
+#    documents_path: str
+#    vectordb_collection: str [Default: 'test_collection']
+#    vectordb_host: str [Default: '0.0.0.0']
+#    vectordb_port: str [Default: '8000']
+components:
+  comp-createpvc:
+    executorLabel: exec-createpvc
+    inputDefinitions:
+      parameters:
+        access_modes:
+          description: 'AccessModes to request for the provisioned PVC. May
+
+            be one or more of ``''ReadWriteOnce''``, ``''ReadOnlyMany''``, ``''ReadWriteMany''``,
+            or
+
+            ``''ReadWriteOncePod''``. Corresponds to `PersistentVolumeClaim.spec.accessModes
+            <https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes>`_.'
+          parameterType: LIST
+        annotations:
+          description: Annotations for the PVC's metadata. Corresponds to `PersistentVolumeClaim.metadata.annotations
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaim>`_.
+          isOptional: true
+          parameterType: STRUCT
+        pvc_name:
+          description: 'Name of the PVC. Corresponds to `PersistentVolumeClaim.metadata.name
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaim>`_.
+            Only one of ``pvc_name`` and ``pvc_name_suffix`` can
+
+            be provided.'
+          isOptional: true
+          parameterType: STRING
+        pvc_name_suffix:
+          description: 'Prefix to use for a dynamically generated name, which
+
+            will take the form ``<argo-workflow-name>-<pvc_name_suffix>``. Only one
+
+            of ``pvc_name`` and ``pvc_name_suffix`` can be provided.'
+          isOptional: true
+          parameterType: STRING
+        size:
+          description: The size of storage requested by the PVC that will be provisioned.
+            For example, ``'5Gi'``. Corresponds to `PersistentVolumeClaim.spec.resources.requests.storage
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec>`_.
+          parameterType: STRING
+        storage_class_name:
+          defaultValue: ''
+          description: 'Name of StorageClass from which to provision the PV
+
+            to back the PVC. ``None`` indicates to use the cluster''s default
+
+            storage_class_name. Set to ``''''`` for a statically specified PVC.'
+          isOptional: true
+          parameterType: STRING
+        volume_name:
+          description: 'Pre-existing PersistentVolume that should back the
+
+            provisioned PersistentVolumeClaim. Used for statically
+
+            specified PV only. Corresponds to `PersistentVolumeClaim.spec.volumeName
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec>`_.'
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        name:
+          parameterType: STRING
+  comp-get-data:
+    executorLabel: exec-get-data
+    inputDefinitions:
+      parameters:
+        documents_path:
+          parameterType: STRING
+        mount_path:
+          parameterType: STRING
+  comp-initialize-vectordb:
+    executorLabel: exec-initialize-vectordb
+    inputDefinitions:
+      parameters:
+        documents_path:
+          parameterType: STRING
+        vectordb_collection:
+          parameterType: STRING
+        vectordb_host:
+          parameterType: STRING
+        vectordb_port:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-createpvc:
+      container:
+        image: argostub/createpvc
+    exec-get-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - get_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'boto3' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef get_data(documents_path:str, mount_path:str):\n    import os\n\
+          \    from boto3 import client\n\n    print('Starting downloading data')\n\
+          \n    s3_endpoint_url = os.environ[\"s3_host\"]\n    s3_access_key = os.environ[\"\
+          s3_access_key\"]\n    s3_secret_key = os.environ[\"s3_secret_access_key\"\
+          ]\n    s3_bucket_name = os.environ[\"s3_bucket\"]\n\n    s3_client = client(\n\
+          \        's3', endpoint_url=s3_endpoint_url, aws_access_key_id=s3_access_key,\n\
+          \        aws_secret_access_key=s3_secret_key, verify=False\n    )\n\n  \
+          \  # list all objects in the folder\n    objects = s3_client.list_objects(Bucket=s3_bucket_name,\
+          \ Prefix=documents_path)\n\n    # download each object in the folder\n \
+          \   for object in objects['Contents']:\n        file_name = object['Key']\n\
+          \        local_file_name = os.path.join(mount_path, file_name.replace(documents_path,\
+          \ '')[1:])\n        s3_client.download_file(s3_bucket_name, file_name, local_file_name)\n\
+          \n    print('Documents downloaded successfully from S3.')\n\n"
+        image: registry.access.redhat.com/ubi9/python-311
+    exec-initialize-vectordb:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - initialize_vectordb
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.9.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef initialize_vectordb(\n        documents_path:str,\n        vectordb_host:str,\n\
+          \        vectordb_port:str,\n        vectordb_collection:str) -> str:\n\n\
+          \    import os\n\n    from langchain.text_splitter import CharacterTextSplitter\n\
+          \    from langchain_community.document_loaders import PyPDFLoader\n    from\
+          \ langchain_huggingface import HuggingFaceEmbeddings\n    from langchain_chroma\
+          \ import Chroma\n\n    from chromadb import HttpClient\n    from chromadb.config\
+          \ import Settings\n    import chromadb.utils.embedding_functions as embedding_functions\n\
+          \n\n    class VectorDB:\n        def __init__(self, vector_vendor, host,\
+          \ port, collection_name, embedding_model):\n            self.vector_vendor\
+          \ = vector_vendor\n            self.host = host\n            self.port =\
+          \ port\n            self.collection_name = collection_name\n           \
+          \ self.embedding_model = embedding_model\n\n        def connect(self):\n\
+          \            # Connection logic\n            print(f\"Connecting to {self.host}:{self.port}...\"\
+          )\n            if self.vector_vendor == \"chromadb\":\n                self.client\
+          \ = HttpClient(host=self.host,\n                                    port=self.port,\n\
+          \                                    settings=Settings(allow_reset=True,))\n\
+          \            return self.client\n\n        def populate_db(self, documents,\
+          \ document_name):\n            # Logic to populate the VectorDB with vectors\n\
+          \            e = HuggingFaceEmbeddings(model_name=self.embedding_model)\n\
+          \            print(f\"Populating VectorDB with vectors...\")\n         \
+          \   if self.vector_vendor == \"chromadb\":\n                embedding_func\
+          \ = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=self.embedding_model)\n\
+          \                collection = self.client.get_or_create_collection(self.collection_name,\n\
+          \                                                                embedding_function=embedding_func)\n\
+          \                if collection.count() < 1:\n                    db = Chroma.from_documents(\n\
+          \                        documents=documents,\n                        #embedding=embedding_func,\n\
+          \                        embedding=e,\n                        collection_name=self.collection_name,\n\
+          \                        client=self.client\n                    )\n   \
+          \                 print(\"DB populated\")\n                else:\n     \
+          \               db = Chroma(client=self.client,\n                      \
+          \          collection_name=self.collection_name,\n                     \
+          \           #embedding_function=embedding_func,\n                      \
+          \          embedding_function=e,\n                                )\n  \
+          \                  print(\"DB already populated\")\n                   \
+          \ if documents:\n                        # Extract text content and metadata\
+          \ from Document objects\n                        doc_texts = [doc.page_content\
+          \ for doc in documents]\n                        doc_metadatas = [doc.metadata\
+          \ for doc in documents]\n                        new_docs = []\n       \
+          \                 new_ids = []\n                        new_metadatas =\
+          \ []\n                        for i, (text, metadata) in enumerate(zip(doc_texts,\
+          \ doc_metadatas)):\n                            new_id = f\"{document_name}_{i}\"\
+          \n                            new_docs.append(text)\n                  \
+          \          new_ids.append(new_id)\n                            metadata.update({\"\
+          index\": i, \"source\": document_name})\n                            new_metadatas.append(metadata)\n\
+          \n                        if new_docs:\n                            collection.add(documents=new_docs,\
+          \ ids=new_ids, metadatas=new_metadatas)\n                            print(\"\
+          DB populated with new document\")\n\n            return db\n\n    def split_docs(raw_documents,\
+          \ chunk_size):\n        text_splitter = CharacterTextSplitter(separator\
+          \ = \".\",\n                                              chunk_size=int(chunk_size),\n\
+          \                                              chunk_overlap=50)\n     \
+          \   docs = text_splitter.split_documents(raw_documents)\n        return\
+          \ docs\n\n\n    def read_file(file_path):\n        loader = PyPDFLoader(file_path)\n\
+          \        raw_documents = loader.load()\n        return raw_documents\n\n\
+          \n    def get_pdfs(path):\n        return [f for f in os.listdir(path) if\
+          \ f.endswith('.pdf')]\n\n    # Some config vars\n    embedding_model = \"\
+          BAAI/bge-base-en-v1.5\"\n    chunk_size = 1000\n    vectordb_vendor = \"\
+          chromadb\"\n\n    # Connect to DB\n    vdb = VectorDB(vectordb_vendor, vectordb_host,\
+          \ vectordb_port, vectordb_collection, embedding_model)\n    vdb.connect()\n\
+          \n    ### populate the DB ####\n    for file_pdf in get_pdfs(documents_path):\n\
+          \        print(\"Adding document: %s\", file_pdf)\n        text = read_file(os.path.join(documents_path,\
+          \ file_pdf))\n        documents = split_docs(text, chunk_size)\n       \
+          \ vdb.populate_db(documents, file_pdf)\n\n    return \"DB successfully initialized\"\
+          \n\n"
+        image: quay.io/ltomasbo/langchain
+pipelineInfo:
+  name: initialize-vectordb-pipeline
+root:
+  dag:
+    tasks:
+      createpvc:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-createpvc
+        inputs:
+          parameters:
+            access_modes:
+              runtimeValue:
+                constant:
+                - ReadWriteOnce
+            pvc_name:
+              runtimeValue:
+                constant: private-data
+            size:
+              runtimeValue:
+                constant: 5Gi
+            storage_class_name:
+              runtimeValue:
+                constant: gp3-csi
+        taskInfo:
+          name: createpvc
+      get-data:
+        cachingOptions:
+          enableCache: false
+        componentRef:
+          name: comp-get-data
+        dependentTasks:
+        - createpvc
+        inputs:
+          parameters:
+            documents_path:
+              componentInputParameter: documents_path
+            mount_path:
+              runtimeValue:
+                constant: /private_data
+        taskInfo:
+          name: get-data
+      initialize-vectordb:
+        cachingOptions:
+          enableCache: false
+        componentRef:
+          name: comp-initialize-vectordb
+        dependentTasks:
+        - createpvc
+        - get-data
+        inputs:
+          parameters:
+            documents_path:
+              runtimeValue:
+                constant: /private_data
+            vectordb_collection:
+              componentInputParameter: vectordb_collection
+            vectordb_host:
+              componentInputParameter: vectordb_host
+            vectordb_port:
+              componentInputParameter: vectordb_port
+        taskInfo:
+          name: initialize-vectordb
+  inputDefinitions:
+    parameters:
+      documents_path:
+        parameterType: STRING
+      vectordb_collection:
+        defaultValue: test_collection
+        isOptional: true
+        parameterType: STRING
+      vectordb_host:
+        defaultValue: 0.0.0.0
+        isOptional: true
+        parameterType: STRING
+      vectordb_port:
+        defaultValue: '8000'
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.9.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-get-data:
+          pvcMount:
+          - mountPath: /private_data
+            taskOutputParameter:
+              outputParameterKey: name
+              producerTask: createpvc
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: s3_access_key
+              secretKey: AWS_ACCESS_KEY_ID
+            - envVar: s3_secret_access_key
+              secretKey: AWS_SECRET_ACCESS_KEY
+            - envVar: s3_host
+              secretKey: AWS_S3_ENDPOINT
+            - envVar: s3_bucket
+              secretKey: AWS_S3_BUCKET
+            secretName: aws-connection-localdocs
+        exec-initialize-vectordb:
+          pvcMount:
+          - mountPath: /private_data
+            taskOutputParameter:
+              outputParameterKey: name
+              producerTask: createpvc
