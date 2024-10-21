@@ -16,8 +16,8 @@ clusterGroup:
     - minio-ns
     - rag-demo:
         annotations:
-          openshift.io/description: 'Databricks RAG Workspace'
-          openshift.io/display-name: 'Databricks RAG Workspace'
+          openshift.io/description: 'RAG Workspace'
+          openshift.io/display-name: 'RAG Workspace'
         labels:
           kubernetes.io/metadata.name: "rag-demo"
           modelmesh-enabled: 'false'
